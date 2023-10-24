@@ -1,6 +1,6 @@
 import os
 
-BOT_TOKEN = os.getenv("TOKEN", None)
+BOT_TOKEN = os.getenv("BOT_TOKEN", "Your_Token_There")
 DB_PATH = "data_workers/data/database.db"
 MAX_SECRETS_PER_USER = 10
 
