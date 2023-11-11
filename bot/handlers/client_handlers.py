@@ -1,5 +1,6 @@
 from typing import Union
 
+import aiogram.exceptions
 from aiogram import Router, types, filters, F
 
 from config import DB_PATH, MAX_SECRETS_PER_USER
@@ -44,11 +45,17 @@ async def start_find_button_click(message: types.Message):
     manager.update_user_status(message.chat.id, 1)
 
     if companion := manager.find_companion(message.chat.id):
+        try:
+            await bot.send_message(companion[0], "<b>Ура! 🎉 Собеседник найден! Хорошего общения.</b>",
+                                   reply_markup=in_chat_kb())
+        except aiogram.exceptions.TelegramForbiddenError:
+            manager.update_user_status(companion[0], 0)
+            return
+
         manager.update_user_status(message.chat.id, 2)
         manager.update_user_status(companion[0], 2)
         manager.register_new_chat(message.chat.id, companion[0])
         await message.answer("<b>Ура! 🎉 Собеседник найден! Хорошего общения.</b>", reply_markup=in_chat_kb())
-        await bot.send_message(companion[0], "<b>Ура! 🎉 Собеседник найден! Хорошего общения.</b>", reply_markup=in_chat_kb())
 
 
 @router.message(F.text == "🛑 Прекратить поиск", UserStateFilter(1))
@@ -66,8 +73,9 @@ async def stop_dialog_button_click(message: types.Message):
     manager.update_user_status(companion_id, 0)
 
     manager.delete_chat(message.chat.id)
-    await message.answer("<b>Ваш диалог был остановлен по вашей инициативе. 🚫</b>", reply_markup=main_kb())
-    await bot.send_message(companion_id, "<b>Ваш диалог был остановлен по инициативе собеседника. 🚫</b>",
+    await message.answer("<b>Система: Ваш диалог был остановлен по вашей инициативе. 🚫</b>",
+                         reply_markup=main_kb())
+    await bot.send_message(companion_id, "<b>Система: Ваш диалог был остановлен по инициативе собеседника. 🚫</b>",
                            reply_markup=main_kb())
 
 
@@ -95,7 +103,7 @@ async def wait_connection_secret(message: types.Message):
 async def check_connection_secret(message: types.Message):
     if len(message.text) != 64:
         await message.answer("<b>Неверный формат ключа. ❌ Проверьте правильность ввода "
-                             "или уточните его у владельца</b>", reply_markup=main_kb())
+                             "или уточните его у владельца.</b>", reply_markup=main_kb())
         manager.update_user_status(message.chat.id, 0)
         return
 
@@ -120,14 +128,22 @@ async def check_connection_secret(message: types.Message):
         manager.update_user_status(message.chat.id, 0)
         return
 
+    try:
+        await bot.send_message(desired_companion[0], "<b>С вами связывается пользователь, используя следующий ключ:\n"
+                                                     f"<tg-spoiler>{message.text}</tg-spoiler>\n"
+                                                     f"Более этот ключ не актуален. ❗</b>", reply_markup=in_chat_kb())
+    except aiogram.exceptions.TelegramForbiddenError:
+        await message.answer("<b>Не удалось подключиться к пользователю, возможно он перестал пользовать ботом.\n"
+                             "Более этот ключ не актуален. ❌</b>", reply_markup=main_kb())
+        manager.delete_user_secret(message.text)
+        manager.update_user_status(message.chat.id, 0)
+        return
+
     manager.delete_user_secret(message.text)
     manager.update_user_status(message.chat.id, 2)
     manager.update_user_status(desired_companion[0], 2)
     manager.register_new_chat(message.chat.id, desired_companion[0])
     await message.answer("<b>Подключаю вас к пользователю! 🔄 Хорошего общения.</b>", reply_markup=in_chat_kb())
-    await bot.send_message(desired_companion[0], "<b>С вами связывается пользователь, используя следующий ключ:\n"
-                                                 f"<tg-spoiler>{message.text}</tg-spoiler>\n"
-                                                 f"Более этот ключ не актуален. ❗</b>", reply_markup=in_chat_kb())
 
 
 @router.message(UserStateFilter(2))
@@ -135,9 +151,16 @@ async def conversation(message: types.Message):
     chat_participants = manager.find_chat_by_id(message.chat.id)
     companion_id = sum(chat_participants) - message.chat.id
 
-    await message.copy_to(companion_id)
+    try:
+        await message.copy_to(chat_id=companion_id)
+    except aiogram.exceptions.TelegramForbiddenError:
+        await message.answer("<b>Система:</b> Упс, собеседник пропал. Возвращаю вас в главное меню. 😬",
+                             reply_markup=main_kb())
+        manager.delete_chat(message.chat.id)
+        manager.update_user_status(message.chat.id, 0)
+        manager.update_user_status(companion_id, 0)
 
 
 @router.message()
-async def conversation(message: types.Message):
+async def trash_collector(message: types.Message):
     await message.delete()
