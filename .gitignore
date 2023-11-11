@@ -159,4 +159,4 @@ cython_debug/
 #  option (not recommended) you can uncomment the following to ignore the entire idea folder.
 .idea/
 
-./bot/data_workers/data/database.db
+/bot/data_workers/data/database.db
